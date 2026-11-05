@@ -121,6 +121,7 @@ r.get('/auction', async (_req, res) => ok(res, await snapshots.auctionSnapshot('
 r.post('/auction/start', async (req, res) => ok(res, { version: (await auction.startAuction(req.user)).version }));
 r.post('/auction/pause', async (req, res) => ok(res, { version: (await auction.pauseAuction(req.user)).version }));
 r.post('/auction/resume', async (req, res) => ok(res, { version: (await auction.resumeAuction(req.user)).version }));
+r.post('/auction/reset', validate(z.object({ confirmName: z.string().max(100) })), async (req, res) => ok(res, await auction.resetAuction(req.user, req.body)));
 r.post('/auction/complete', async (req, res) => ok(res, { version: (await auction.completeAuction(req.user)).version }));
 r.post('/auction/select-player', validate(z.object({ playerId: objectId })), async (req, res) => ok(res, { version: (await auction.selectPlayer(req.user, req.body.playerId)).version }));
 r.post('/auction/next-player', async (req, res) => ok(res, { version: (await auction.selectNextPlayer(req.user)).version }));

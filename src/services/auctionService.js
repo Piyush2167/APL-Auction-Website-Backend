@@ -5,7 +5,7 @@
  * transaction is retried with fresh state, and business validation is re-run against that state.
  */
 const crypto = require('crypto');
-const { Auction, Player, Team, Bid, AuctionTransaction, FinancialTransaction, MysteryToken } = require('../models');
+const { Auction, Player, Team, Bid, AuctionTransaction, FinancialTransaction, MysteryToken, ResaleRequest } = require('../models');
 const { withTxn } = require('../config/db');
 const { getContext } = require('./seasonService');
 const { conflict, bad, forbidden, notFound, AppError } = require('../utils/errors');
@@ -369,7 +369,45 @@ async function pendingPlayers() {
   };
 }
 
+/**
+ * Reset the current auction to its starting point (status CREATED) for a fresh run.
+ * Removes all progress: bids, sale/unsold/skip/resale records, the financial ledger, mystery token use, resale requests.
+ * Keeps teams, captains, players (back to AVAILABLE at their original base price), configuration and the audit log.
+ * Exceptional, destructive admin operation: the caller must repeat the auction name, and the reset is audited with counts.
+ */
+async function resetAuction(admin, { confirmName } = {}) {
+  clearTimeout(finalizeTimer);
+  return mutate(async (s) => {
+    const { season, auction } = await getContext(s);
+    if (String(confirmName || '').trim() !== season.name) throw bad('CONFIRMATION_MISMATCH', `Type the auction name "${season.name}" exactly to confirm`);
+    const sid = season._id;
+    const [bids, txns, ledger, resales, tokens] = await Promise.all([
+      Bid.deleteMany({ season: sid }, { session: s }),
+      AuctionTransaction.deleteMany({ season: sid }, { session: s }),
+      // The ledger model blocks deletes (append-only); a reset is the one sanctioned exception.
+      FinancialTransaction.collection.deleteMany({ season: sid }, { session: s }),
+      ResaleRequest.deleteMany({ season: sid }, { session: s }),
+      MysteryToken.deleteMany({ season: sid }, { session: s }),
+    ]);
+    const players = await Player.updateMany({ season: sid }, [{ $set: {
+      status: 'AVAILABLE', currentTeam: null, purchasePrice: null, purchaseTxn: null, previousOwners: [],
+      resaleCount: 0, unsoldCount: 0, skipCount: 0, basePrice: '$originalBasePrice',
+    } }], { session: s, updatePipeline: true });
+    await Team.updateMany({ season: sid }, { $set: { squad: [], 'finance.spent': 0, 'finance.resaleCredits': 0 } }, { session: s });
+    const updated = await cas(s, auction, {}, { $set: {
+      ...CLEAR_ACTIVE, status: 'CREATED', bidSeq: 0, statusBeforePause: null, finalization: CLEAR_FINAL,
+      lastResult: { outcome: null, player: null, team: null, amount: null, at: null }, configSnapshot: null, startedAt: null, completedAt: null,
+    } });
+    const removed = { bids: bids.deletedCount, auctionTransactions: txns.deletedCount, ledgerEntries: ledger.deletedCount, resaleRequests: resales.deletedCount, mysteryTokens: tokens.deletedCount, playersReset: players.modifiedCount };
+    await audit(s, { season: sid, type: 'AUCTION_RESET', actor: admin, previousState: auction.status, newState: 'CREATED', details: removed });
+    const teams = await Team.find({ season: sid }).select('_id').session(s);
+    await outbox.enqueue(s, [STATE, LEADERBOARD, ...teams.map((t) => ({ type: 'team:updated', rooms: [`team:${t._id}`] }))]);
+    return { version: updated.version, removed };
+  });
+}
+
 module.exports = {
+  resetAuction,
   startAuction, pauseAuction, resumeAuction, completeAuction, selectPlayer, selectNextPlayer, startBidding,
   placeBid, markSold, markUnsold, markSkipped, completeDueFinalization, scheduleFinalization, pendingPlayers, mutate, cas,
 };

@@ -282,3 +282,32 @@ describe('SOLD with zero delay', () => {
     assert.equal(await M.FinancialTransaction.countDocuments({ type: 'PURCHASE_DEBIT' }), 1);
   });
 });
+
+describe('reset auction', () => {
+  test('wipes progress, keeps teams/players/captains, and the auction can be confirmed and started again', async () => {
+    const f = await H.fixture();
+    await H.sell(f.admin, f.captains[0], f.players[0], 60);
+    await A.selectPlayer(f.admin, f.players[1]._id);
+    await A.markUnsold(f.admin);
+    assert.equal(await H.code(A.resetAuction(f.admin, { confirmName: 'wrong' })), 'CONFIRMATION_MISMATCH');
+    const r = await A.resetAuction(f.admin, { confirmName: 'APL Season 8' });
+    assert.equal(r.removed.bids, 1);
+    assert.ok(r.removed.ledgerEntries >= 4);
+    const au = await M.Auction.findOne();
+    assert.equal(au.status, 'CREATED');
+    assert.equal(au.activePlayer, null);
+    assert.equal(await M.Bid.countDocuments(), 0);
+    assert.equal(await M.FinancialTransaction.countDocuments(), 0);
+    assert.equal(await M.MysteryToken.countDocuments(), 0);
+    assert.equal(await M.Player.countDocuments({ status: { $ne: 'AVAILABLE' } }), 0);
+    const team = await M.Team.findById(f.captains[0].team._id);
+    assert.deepEqual([team.squad.length, team.finance.spent], [0, 0]);
+    assert.equal(await M.Team.countDocuments(), 3);
+    assert.equal(await M.User.countDocuments({ role: 'CAPTAIN', active: true }), 3);
+    assert.equal(await M.AuctionLog.countDocuments({ type: 'AUCTION_RESET' }), 1);
+    await require('../src/services/seasonService').confirmConfig(f.admin);
+    await A.startAuction(f.admin);
+    await H.sell(f.admin, f.captains[1], f.players[0], 20);
+    assert.equal((await M.Player.findById(f.players[0]._id)).status, 'SOLD');
+  });
+});

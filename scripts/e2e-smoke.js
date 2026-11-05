@@ -68,8 +68,9 @@ const step = (m) => console.log(`✔ ${m}`);
 
   await ok(call('POST', '/admin/auction/sold', admin));
   const lockedBid = await call('POST', '/captain/auction/bid', c1, { playerId: st.player.id, amount: st.nextValidBid + 10 });
-  assert.equal(lockedBid.error.code, 'BIDDING_LOCKED');
-  step('SOLD locks bidding immediately (bid during finalization rejected)');
+  // With a delay the late bid hits the finalization lock; with 0 s the player is already sold and off the block.
+  assert.equal(lockedBid.error.code, st.finalizationSeconds ? 'BIDDING_LOCKED' : 'NO_ACTIVE_PLAYER');
+  step(`SOLD locks bidding immediately (late bid rejected: ${lockedBid.error.code})`);
   await sleep(st.finalizationSeconds * 1000 + 800);
   assert.ok(aud.seen.some((e) => e.t === 'player:finalizing'), 'audience saw finalizing');
   assert.ok(aud.seen.some((e) => e.t === 'player:sold'), 'audience saw sold');

@@ -29,7 +29,8 @@ function playerSchema(config, { partial = false } = {}) {
   ).default([]);
   const shape = {
     name: z.string().trim().min(2, 'name must be at least 2 characters').max(100),
-    image: z.preprocess(emptyToUndef, z.url({ protocol: /^https?$/ }).max(500).nullable().optional()),
+    // Full URL, or a photo bundled with the frontend at /players/<file>.
+    image: z.preprocess(emptyToUndef, z.union([z.string().regex(/^\/players\/[\w.-]+$/), z.url({ protocol: /^https?$/ }).max(500)]).nullable().optional()),
     gender: z.preprocess((v) => gen(v) ?? v, z.enum(C.GENDERS, { message: `gender must be one of ${C.GENDERS.join(', ')}` })),
     category: z.preprocess((v) => cat(v) ?? v, z.enum(config.categories, { message: `category must be one of ${config.categories.join(', ')}` })),
     battingStyle: z.string().trim().max(60).optional().default(''),
