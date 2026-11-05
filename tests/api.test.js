@@ -187,6 +187,23 @@ describe('players & import', () => {
 describe('mystery players', () => {
   const spec = { playerSpecs: [{ name: 'Hidden Legend', playerType: 'MYSTERY', image: 'https://img.test/secret.png', registrationId: 'REG-SECRET', skills: ['Covert googly'] }, { name: 'Normal Guy' }] };
 
+  test('/super board: full identities only with the right key', async () => {
+    const env = require('../src/config/env');
+    const prev = env.SUPER_VIEW_KEY;
+    env.SUPER_VIEW_KEY = 'correct-horse-battery-staple';
+    try {
+      await H.fixture(spec);
+      for (const key of ['', 'wrong-key-wrong-key']) {
+        const r = await request(app).get('/api/public/super/players').query({ key }).expect(403);
+        assert.ok(!/Hidden Legend/.test(JSON.stringify(r.body)));
+      }
+      const r = await request(app).get('/api/public/super/players').query({ key: env.SUPER_VIEW_KEY }).expect(200);
+      assert.deepEqual(r.body.data.rows.map((p) => p.name), ['Hidden Legend']);
+      env.SUPER_VIEW_KEY = undefined;
+      await request(app).get('/api/public/super/players').query({ key: 'correct-horse-battery-staple' }).expect(403);
+    } finally { env.SUPER_VIEW_KEY = prev; }
+  });
+
   test('public APIs and other captains never see the identity; revealing team does, persistently', async () => {
     const f = await H.fixture(spec);
     const [a, b] = f.captains;

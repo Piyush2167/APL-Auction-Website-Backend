@@ -5,6 +5,10 @@ const { validate } = require('../middleware');
 const snapshots = require('../services/snapshotService');
 const reports = require('../services/reportService');
 const P = require('../services/projections');
+const crypto = require('crypto');
+const env = require('../config/env');
+const players = require('../services/playerService');
+const { AppError } = require('../utils/errors');
 
 const r = Router();
 const ok = (res, data) => res.json({ success: true, data });
@@ -21,5 +25,14 @@ r.get('/teams', async (_req, res) => ok(res, await reports.results('public')));
 r.get('/results', async (_req, res) => ok(res, await reports.results('public')));
 r.get('/players', validate(paging.extend({ status: z.string().max(200).optional(), category: z.string().max(30).optional(), playerType: z.enum(['NORMAL', 'MYSTERY']).optional() }), 'query'),
   async (req, res) => ok(res, await reports.publicPlayers(req.q)));
+
+// The one exception to "masked only": the /super board, unlocked by the SUPER_VIEW_KEY secret.
+const keyHash = (k) => crypto.createHash('sha256').update(String(k ?? '')).digest();
+r.get('/super/players', async (req, res) => {
+  if (!env.SUPER_VIEW_KEY || !crypto.timingSafeEqual(keyHash(req.query.key), keyHash(env.SUPER_VIEW_KEY))) {
+    throw new AppError(403, 'INVALID_KEY', 'This link is not valid.');
+  }
+  ok(res, await players.listPlayers({ playerType: 'MYSTERY', limit: 200 }));
+});
 
 module.exports = r;

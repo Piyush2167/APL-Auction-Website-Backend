@@ -16,7 +16,11 @@ function createApp() {
   app.use(cors({ origin: env.corsOrigins, credentials: true }));
   app.use(express.json({ limit: '200kb' }));
   app.use(cookieParser());
-  app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
+  app.use(pinoHttp({
+    logger, autoLogging: { ignore: (req) => req.url === '/api/health' },
+    // Keep the /super link secret out of the logs.
+    serializers: { req: (req) => ({ ...req, url: req.url?.replace(/([?&]key=)[^&]*/, '$1***') }) },
+  }));
 
   app.get('/api/health', (_req, res) => {
     const db = mongoose.connection.readyState === 1 ? 'up' : 'down';

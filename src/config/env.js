@@ -21,6 +21,8 @@ const schema = z.object({
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
   LOG_LEVEL: z.string().default('info'),
+  // Secret for the /super?key=... mystery board link. Unset = the link is disabled.
+  SUPER_VIEW_KEY: z.string().min(16, 'SUPER_VIEW_KEY must be at least 16 chars').optional(),
 });
 
 const parsed = schema.safeParse(process.env);
