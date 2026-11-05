@@ -118,13 +118,16 @@ describe('players & import', () => {
   test('create, duplicate, edit, delete; mystery creation', async () => {
     const f = await H.fixture({ start: false, players: 0, playerSpecs: [] });
     const auth = bearer(f.adminToken);
-    const c = await request(app).post('/api/admin/players').set(auth).send({ name: 'Rahul Sharma', gender: 'male', category: 'batsman', basePrice: 30, skills: ['Opener'] }).expect(201);
+    const c = await request(app).post('/api/admin/players').set(auth).send({ name: 'Rahul Sharma', gender: 'male', category: 'batsman', basePrice: 30, skills: ['batsman', 'Fielder', 'Batsman'] }).expect(201);
+    assert.deepEqual(c.body.data.skills, ['Batsman', 'Fielder']);
+    const badSkill = await request(app).post('/api/admin/players').set(auth).send({ name: 'Free Text', gender: 'Male', category: 'Bowler', skills: ['Opener'] }).expect(400);
+    assert.match(JSON.stringify(badSkill.body), /skills must be from/);
     assert.equal(c.body.data.category, 'Batsman');
     assert.equal(c.body.data.originalBasePrice, 30);
     const dup = await request(app).post('/api/admin/players').set(auth).send({ name: '  rahul   SHARMA ', gender: 'Male', category: 'Bowler' }).expect(409);
     assert.equal(dup.body.error.code, 'DUPLICATE_PLAYER');
     await request(app).post('/api/admin/players').set(auth).send({ name: 'Bad', gender: 'Male', category: 'Goalkeeper' }).expect(400);
-    const m = await request(app).post('/api/admin/players').set(auth).send({ name: 'Secret Star', gender: 'Male', category: 'Bowler', playerType: 'MYSTERY', publicSkills: ['Swing'] }).expect(201);
+    const m = await request(app).post('/api/admin/players').set(auth).send({ name: 'Secret Star', gender: 'Male', category: 'Bowler', playerType: 'MYSTERY', publicSkills: ['Bowler'] }).expect(201);
     assert.equal(m.body.data.playerType, 'MYSTERY');
     assert.equal(m.body.data.basePrice, 20); // config default
     const e = await request(app).patch(`/api/admin/players/${c.body.data.id}`).set(auth).send({ basePrice: 40 }).expect(200);
@@ -143,7 +146,7 @@ describe('players & import', () => {
   test('CSV preview reports valid/invalid/duplicate rows; commit imports only valid', async () => {
     const f = await H.fixture({ start: false, players: 1 }); // "Player 1" exists
     const csv = 'name,gender,category,basePrice,playerType,skills\n'
-      + 'Rahul Sharma,Male,Batsman,20,NORMAL,Opener;Anchor\n'
+      + 'Rahul Sharma,Male,Batsman,20,NORMAL,batsman;Wicketkeeper\n'
       + 'Amit Kumar,Male,Bowler,30,MYSTERY,\n'
       + 'Bad Row,Male,Goalie,-5,ALIEN,\n'
       + 'rahul sharma,Male,Bowler,20,NORMAL,\n'
@@ -163,7 +166,7 @@ describe('players & import', () => {
     assert.equal(c.body.data.failed, 4);
     const amit = await M.Player.findOne({ name: 'Amit Kumar' });
     assert.equal(amit.playerType, 'MYSTERY');
-    assert.deepEqual((await M.Player.findOne({ name: 'Rahul Sharma' })).skills, ['Opener', 'Anchor']);
+    assert.deepEqual((await M.Player.findOne({ name: 'Rahul Sharma' })).skills, ['Batsman', 'Wicketkeeper']);
     // Re-import: everything is now a duplicate; nothing overwritten.
     const again = await request(app).post('/api/admin/players/import/csv').set(auth).attach('file', Buffer.from(csv), 'p.csv').expect(201);
     assert.equal(again.body.data.imported, 0);
@@ -276,5 +279,17 @@ describe('finance via API', () => {
   test('health endpoint', async () => {
     const r = await request(app).get('/api/health').expect(200);
     assert.equal(r.body.data.db, 'up');
+  });
+});
+
+describe('simplified player import', () => {
+  test('"skill" column works as the category and the base price comes from the auction', async () => {
+    const f = await H.fixture({ start: false, players: 0, playerSpecs: [], config: { defaultBasePrice: 25 } });
+    const csv = 'name,skill,gender,image\nRahul Sharma,batsman,Male,\nAmit Kumar,Bowler,Male,https://example.com/a.jpg\nBad One,Goalie,Male,\n';
+    const r = await request(app).post('/api/admin/players/import/csv').set(bearer(f.adminToken)).attach('file', Buffer.from(csv), 'p.csv').expect(201);
+    assert.equal(r.body.data.imported, 2);
+    assert.equal(r.body.data.failed, 1);
+    const p = await M.Player.findOne({ name: 'Rahul Sharma' });
+    assert.deepEqual([p.category, p.skills, p.playerType, p.basePrice], ['Batsman', ['Batsman'], 'NORMAL', 25]);
   });
 });

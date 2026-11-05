@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# environment: contains MongoDB credentials and JWT secrets (keep .env.example committed)
+.env
+.env*
+!.env.example
+
+# local development data
+# local MongoDB replica set (npm run dev-db)
+.devdb/
+# dev emails written instead of sending (contain temporary passwords)
+.mail/
+
+# tests / coverage
+coverage/
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/

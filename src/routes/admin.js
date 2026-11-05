@@ -73,7 +73,7 @@ r.post('/teams', validate(z.object(teamShape)), async (req, res) => ok(res, awai
 r.get('/teams/:id', async (req, res) => ok(res, await teams.get(objectId.parse(req.params.id))));
 r.patch('/teams/:id', validate(z.object(teamShape).partial()), async (req, res) => ok(res, await teams.update(req.user, objectId.parse(req.params.id), req.body)));
 r.delete('/teams/:id', async (req, res) => ok(res, await teams.remove(req.user, objectId.parse(req.params.id))));
-r.post('/teams/:id/captain', validate(z.object({ name: z.string().trim().min(2).max(100), email: z.email().max(200) })),
+r.post('/teams/:id/captain', validate(z.object({ name: z.string().trim().min(2).max(100).optional(), email: z.email().max(200), playerId: objectId.optional() })),
   async (req, res) => ok(res, await teams.assignCaptain(req.user, objectId.parse(req.params.id), req.body), 201));
 
 r.get('/captains', async (_req, res) => ok(res, await teams.listCaptains()));

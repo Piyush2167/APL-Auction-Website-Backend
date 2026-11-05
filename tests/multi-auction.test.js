@@ -44,3 +44,13 @@ test('an active captain of the current auction cannot be grabbed by another team
   await M.User.updateOne({ _id: f.captains[1].user._id }, { $set: { active: false } });
   assert.equal(await H.code(teams.assignCaptain(f.admin, f.captains[1].team._id, { name: 'X', email: 'c1@test.local' })), 'EMAIL_IN_USE');
 });
+
+test('captain chosen from the registered players: name filled, linked, not reusable for another team', async () => {
+  const f = await H.fixture({ teams: 2, start: false });
+  await M.User.updateMany({ role: 'CAPTAIN' }, { $set: { active: false } });
+  const r = await teams.assignCaptain(f.admin, f.captains[0].team._id, { email: 'p1@test.local', playerId: f.players[0]._id });
+  assert.equal(r.captain.name, f.players[0].name);
+  assert.equal(String((await M.Team.findById(f.captains[0].team._id)).captainPlayer), String(f.players[0]._id));
+  assert.equal(await H.code(teams.assignCaptain(f.admin, f.captains[1].team._id, { email: 'p2@test.local', playerId: f.players[0]._id })), 'PLAYER_ALREADY_CAPTAIN');
+  assert.equal(await H.code(teams.assignCaptain(f.admin, f.captains[1].team._id, { email: 'p3@test.local' })), 'NAME_REQUIRED');
+});

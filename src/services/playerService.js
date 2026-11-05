@@ -9,14 +9,24 @@ const P = require('./projections');
 const C = require('../constants');
 
 const nameKey = (n) => String(n).normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
-const ciMatch = (list) => (v) => list.find((x) => x.toLowerCase() === String(v ?? '').trim().toLowerCase());
-const list = z.array(z.string().trim().min(1).max(60)).max(20);
+// Common spellings in registration sheets → canonical values.
+const ALIASES = { batter: 'batsman', 'all rounder': 'all-rounder', allrounder: 'all-rounder', keeper: 'wicketkeeper', 'wicket keeper': 'wicketkeeper', wk: 'wicketkeeper', unknown: 'other', m: 'male', f: 'female' };
+const ciMatch = (list) => (v) => {
+  const k = String(v ?? '').trim().toLowerCase();
+  return list.find((x) => x.toLowerCase() === k) ?? list.find((x) => x.toLowerCase() === ALIASES[k]);
+};
+const isUnknown = (v) => ['', 'unknown', 'na', 'n/a', '-'].includes(String(v ?? '').trim().toLowerCase());
 const toList = (v) => (Array.isArray(v) ? v : String(v ?? '').split(/[;|]/)).map((s) => String(s).trim()).filter(Boolean);
 const emptyToUndef = (v) => (v === '' || v === null ? undefined : v);
 
 function playerSchema(config, { partial = false } = {}) {
   const cat = ciMatch(config.categories);
   const gen = ciMatch(C.GENDERS);
+  // Skills are chosen from the auction's categories (e.g. an all-rounder: Batsman + Bowler). Case-insensitive, de-duplicated.
+  const skillList = (field) => z.preprocess(
+    (v) => [...new Set(toList(v).map((s) => cat(s) ?? s))],
+    z.array(z.enum(config.categories, { message: `${field} must be from: ${config.categories.join(', ')}` })),
+  ).default([]);
   const shape = {
     name: z.string().trim().min(2, 'name must be at least 2 characters').max(100),
     image: z.preprocess(emptyToUndef, z.url({ protocol: /^https?$/ }).max(500).nullable().optional()),
@@ -24,8 +34,8 @@ function playerSchema(config, { partial = false } = {}) {
     category: z.preprocess((v) => cat(v) ?? v, z.enum(config.categories, { message: `category must be one of ${config.categories.join(', ')}` })),
     battingStyle: z.string().trim().max(60).optional().default(''),
     bowlingStyle: z.string().trim().max(60).optional().default(''),
-    skills: z.preprocess(toList, list).default([]),
-    publicSkills: z.preprocess(toList, list).default([]),
+    skills: skillList('skills'),
+    publicSkills: skillList('publicSkills'),
     experience: z.preprocess((v) => (v == null ? '' : String(v)), z.string().trim().max(200)).default(''),
     registrationId: z.preprocess(emptyToUndef, z.string().trim().max(40).nullable().optional()),
     basePrice: z.preprocess(emptyToUndef, z.coerce.number().int('basePrice must be a whole number').min(0, 'basePrice cannot be negative').max(100000).optional()),
@@ -158,7 +168,16 @@ async function analyzeImport(buffer, format) {
   const valid = []; const invalid = []; const duplicates = [];
   rows.forEach((raw, i) => {
     const row = i + 1;
-    const r = schema.safeParse(raw);
+    // "skill" is the form's name for category; accept it as an alias in files too.
+    const { skill, ...rest } = raw;
+    const row_ = skill !== undefined && rest.category === undefined ? { ...rest, category: skill, skills: rest.skills ?? skill } : { ...raw };
+    // Unknown skill: don't drop the player — file them under All-rounder (editable later).
+    if (isUnknown(row_.category)) {
+      row_.category = config.categories.find((c) => c.toLowerCase() === 'all-rounder') ?? config.categories[0];
+      if (isUnknown(row_.skills)) row_.skills = [];
+    }
+    if (isUnknown(row_.gender)) row_.gender = 'Other';
+    const r = schema.safeParse(row_);
     if (!r.success) {
       invalid.push({ row, raw, errors: r.error.issues.map((x) => `${x.path.join('.') || 'row'}: ${x.message}`) });
       return;

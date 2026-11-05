@@ -68,6 +68,7 @@ const teamSchema = new Schema({
   abbreviation: { type: String, required: true, trim: true, uppercase: true, maxlength: 6 },
   logo: { type: String, default: null },
   captain: { type: ObjectId, ref: 'User', default: null },
+  captainPlayer: { type: ObjectId, ref: 'Player', default: null }, // registered player chosen as captain
   initialPurse: { type: Number, required: true, min: 0 },
   maxSquadSize: { type: Number, required: true, min: 1 },
   squad: [{ type: ObjectId, ref: 'Player' }],

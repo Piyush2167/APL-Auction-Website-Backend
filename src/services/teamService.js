@@ -13,9 +13,10 @@ const started = (auction) => !['CREATED', 'READY'].includes(auction.status);
 
 async function list() {
   const { season } = await getContext();
-  const teams = await Team.find({ season: season._id }).populate('captain', 'name email active mustChangePassword lastLoginAt').sort({ name: 1 }).lean();
+  const teams = await Team.find({ season: season._id }).populate('captain', 'name email active mustChangePassword lastLoginAt').populate('captainPlayer', 'name').sort({ name: 1 }).lean();
   return teams.map((t) => ({
     ...P.leaderboardRow(t),
+    captainPlayer: t.captainPlayer ? { id: String(t.captainPlayer._id), name: t.captainPlayer.name } : null,
     captain: t.captain ? { id: String(t.captain._id), name: t.captain.name, email: t.captain.email, active: t.captain.active, mustChangePassword: t.captain.mustChangePassword, lastLoginAt: t.captain.lastLoginAt } : null,
   }));
 }
@@ -77,12 +78,21 @@ async function remove(admin, id) {
 }
 
 /** Create the captain account for a team and email a temporary credential. */
-async function assignCaptain(admin, teamId, { name, email: addr }) {
+async function assignCaptain(admin, teamId, { name, email: addr, playerId }) {
   const { user, team } = await withTxn(async (s) => {
     const { season } = await getContext(s);
     const team = await Team.findOne({ _id: teamId, season: season._id }).populate('captain').session(s);
     if (!team) throw notFound('Team');
     if (team.captain?.active) throw conflict('CAPTAIN_EXISTS', 'This team already has an active captain. Deactivate them first.');
+    if (playerId) {
+      const player = await Player.findOne({ _id: playerId, season: season._id }).session(s);
+      if (!player) throw notFound('Player');
+      const other = await Team.findOne({ season: season._id, captainPlayer: player._id, _id: { $ne: team._id } }).session(s);
+      if (other) throw conflict('PLAYER_ALREADY_CAPTAIN', `${player.name} is already the captain of ${other.name}`);
+      team.captainPlayer = player._id;
+      name = name || player.name;
+    }
+    if (!name) throw bad('NAME_REQUIRED', 'Enter the captain name or choose a player');
     const lower = addr.toLowerCase().trim();
     const existing = await User.findOne({ email: lower }).populate('team', 'season').session(s);
     let user;
